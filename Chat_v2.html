@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; font-size: 13px; }
+    select, input[type=text], button { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 6px; }
+    #log { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; margin-top: 8px; background: #fafafa; }
+    .bot { background: #e8f0fe; padding: 6px 8px; border-radius: 6px; margin: 6px 0; }
+    .me { background: #e6f4ea; padding: 6px 8px; border-radius: 6px; margin: 6px 0; text-align: right; }
+    .row { display: flex; gap: 6px; }
+    .row button { width: auto; }
+    .replay { width: auto; padding: 2px 8px; margin: 4px 0 0 0; font-size: 12px; }
+    label { display: block; margin-top: 8px; }
+    #voiceStatus { font-size: 11px; color: #555; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <b>Task assistant (AI)</b>
+  <select id="intern"></select>
+  <button onclick="startChat()">Start briefing</button>
+  <button onclick="testVoice()">Test voice</button>
+  <div id="voiceStatus">Checking voice...</div>
+  <label><input type="checkbox" id="speak" checked> Read replies aloud</label>
+  <div id="log"></div>
+  <div class="row">
+    <input type="text" id="msg" placeholder="Ask a question..." onkeydown="if(event.key==='Enter')send()">
+    <button onclick="send()">Send</button>
+  </div>
+
+  <script>
+    var chatHistory = [];
+    var voices = [];
+    var chosenVoice = null;
+
+    function loadVoices() {
+      if (!window.speechSynthesis) {
+        document.getElementById('voiceStatus').textContent = 'Voice not supported in this browser. Use Chrome on a computer.';
+        return;
+      }
+      voices = window.speechSynthesis.getVoices();
+      if (!voices.length) {
+        document.getElementById('voiceStatus').textContent = 'Voices loading... click Test voice.';
+        return;
+      }
+      chosenVoice =
+        voices.find(function (v) { return v.lang === 'en-IN'; }) ||
+        voices.find(function (v) { return /^en/.test(v.lang) && /Google|Natural|Online/i.test(v.name); }) ||
+        voices.find(function (v) { return /^en/.test(v.lang); }) ||
+        voices[0];
+      document.getElementById('voiceStatus').textContent = 'Voice ready: ' + chosenVoice.name;
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    loadVoices();
+
+    function speak(text) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      if (!voices.length) loadVoices();
+      // Split into sentences: Chrome can stop long utterances halfway.
+      var parts = text.match(/[^.!?]+[.!?]*/g) || [text];
+      parts.forEach(function (p) {
+        var s = p.trim();
+        if (!s) return;
+        var u = new SpeechSynthesisUtterance(s);
+        if (chosenVoice) { u.voice = chosenVoice; u.lang = chosenVoice.lang; }
+        u.rate = 0.95;
+        u.volume = 1;
+        window.speechSynthesis.speak(u);
+      });
+    }
+
+    function testVoice() {
+      loadVoices();
+      speak('Hello, I am Asha, the team AI assistant. Can you hear me?');
+    }
+
+    google.script.run.withSuccessHandler(function (names) {
+      var sel = document.getElementById('intern');
+      names.forEach(function (n) {
+        var o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        sel.appendChild(o);
+      });
+    }).getInternNames();
+
+    function add(cls, text) {
+      var d = document.createElement('div');
+      d.className = cls;
+      var t = document.createElement('div');
+      t.textContent = text;
+      d.appendChild(t);
+      if (cls === 'bot' && text !== '...') {
+        var b = document.createElement('button');
+        b.className = 'replay';
+        b.textContent = '\uD83D\uDD0A Play';
+        b.onclick = function () { speak(text); };
+        d.appendChild(b);
+      }
+      var log = document.getElementById('log');
+      log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function ask() {
+      add('bot', '...');
+      var name = document.getElementById('intern').value;
+      google.script.run
+        .withSuccessHandler(function (reply) {
+          var log = document.getElementById('log');
+          log.removeChild(log.lastChild);
+          chatHistory.push({ role: 'assistant', content: reply });
+          add('bot', reply);
+          if (document.getElementById('speak').checked) speak(reply);
+        })
+        .withFailureHandler(function (e) {
+          var log = document.getElementById('log');
+          log.removeChild(log.lastChild);
+          add('bot', 'Error: ' + e.message);
+        })
+        .chatWithAsha(name, chatHistory);
+    }
+
+    function startChat() {
+      chatHistory = [{ role: 'user', content: "Hi, I'm ready for my briefing." }];
+      document.getElementById('log').innerHTML = '';
+      ask();
+    }
+
+    function send() {
+      var box = document.getElementById('msg');
+      var text = box.value.trim();
+      if (!text || chatHistory.length === 0) return;
+      box.value = '';
+      add('me', text);
+      chatHistory.push({ role: 'user', content: text });
+      ask();
+    }
+  </script>
+</body>
+</html>
